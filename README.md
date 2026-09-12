@@ -8,10 +8,13 @@ others.
 
 | you want | use | against pokerkit |
 |---|---|---|
-| compare 7-card hands | `eval7` | ~686 µs → ~14 µs |
-| play out millions of hands | `FastHand` | deal 932 µs → ~25 µs |
+| compare 7-card hands | `eval7` | **74x** (1 core) → **331x** (4 cores) |
+| play out millions of hands | `FastHand` | **45x** (1 core) → **160x** (4 cores) |
 | keep pokerkit, lose the cost | `pokerfast.patches` | ~2x on the evaluation path |
 | exact multi-way equity | `pokerfast.equity` | C++ (OMPEval), batched |
+
+The speedup **grows with core count**, because the two engines scale in
+opposite directions on a free-threaded build. See [Benchmarks](#benchmarks).
 
 ## Install
 
@@ -154,13 +157,59 @@ The differential tests need pokerkit and are the reason to trust any of this;
 they skip without it, which makes the suite much weaker. Don't read a green run
 that skipped them as a pass.
 
-## Benchmarks, honestly
+## Benchmarks
 
-The figures above were measured on CPython 3.13, free-threaded, on one machine,
-against pokerkit 0.7.3. They are the right order of magnitude and not a
-promise. The engine numbers come from a workload that plays hands to completion
-in bulk; if you deal one hand and inspect it, pokerkit's constant factor is
-irrelevant to you and you should use pokerkit.
+```bash
+PYTHON_GIL=0 python benchmarks/benchmark.py --threads 1,2,4 --rounds 5
+```
+
+Paired and interleaved: every round runs both engines back to back, alternating
+which goes first, and reports the **ratio** — which survives a busy machine,
+because contention hits both arms. Each arm gets the same wall budget and
+reports how much it finished, so neither is penalised by a miscalibrated work
+count. The per-round ratios are printed; if they disagree with each other, the
+machine was too noisy and the median means nothing.
+
+CPython 3.14.7 free-threaded, pokerkit 0.7.3, 5 rounds, 3 s per arm:
+
+| threads | full hands played to completion | 7-card evaluation |
+|---|---|---|
+| 1 | **45x** (5,151/s vs 116/s) | **74x** (269k/s vs 3,476/s) |
+| 2 | **76x** (10,029/s vs 135/s) | **122x** (480k/s vs 3,700/s) |
+| 4 | **160x** (11,110/s vs 67/s) | **331x** (558k/s vs 1,610/s) |
+
+### Why the speedup grows with cores
+
+Relative to each engine's *own* single-thread rate:
+
+| threads | pokerfast | pokerkit |
+|---|---|---|
+| 1 | 1.00x | 1.00x |
+| 2 | 1.95x | 1.17x |
+| 4 | 2.16x | **0.58x** |
+
+pokerfast scales sublinearly, as you would expect. pokerkit goes *backwards* —
+at four threads it does less total work than at one. That reproduced across
+three separate runs (0.49x, 0.70x, 0.58x), so it is an effect rather than
+noise, but **the cause is untested**: the likely candidate is reference-count
+contention on shared immutable objects, which a free-threaded build turns into
+cache-line ping-pong between cores. Treat that as a hypothesis, not a finding.
+
+The compounding of those two curves is the whole story: 45x becomes 160x not
+because pokerfast got faster, but because pokerkit got slower.
+
+### What these numbers are not
+
+Measured on one machine — an 8-thread laptop — **with an unrelated GPU training
+job occupying ~1.5 cores throughout**. The paired ratios are protected against
+that; the scaling column compares an engine against itself and is only
+partially protected, and 8 threads was not measured at all because the machine
+was not free. Expect different absolutes elsewhere.
+
+They also describe a *bulk* workload that plays hands to completion. If you
+deal one hand and inspect it, pokerkit's constant factor is irrelevant to you
+and you should use pokerkit — it is a far more general library, and pokerfast
+is only faster because it does much less.
 
 ## Licence
 
