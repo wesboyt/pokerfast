@@ -1,0 +1,19 @@
+diff --git a/omp/Random.h b/omp/Random.h
+index c35078c..2c0d476 100644
+--- a/omp/Random.h
++++ b/omp/Random.h
+@@ -29,12 +29,12 @@ public:
+         return result;
+     }
+ 
+-    static uint64_t min()
++    constexpr static uint64_t min()
+     {
+         return 0;
+     }
+ 
+-    static uint64_t max()
++    constexpr static uint64_t max()
+     {
+         return ~(uint64_t)0;
+     }

@@ -1,0 +1,3 @@
+[submodule "vendor/OMPEval"]
+	path = vendor/OMPEval
+	url = https://github.com/vkresch/OMPEval.git

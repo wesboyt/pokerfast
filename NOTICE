@@ -1,0 +1,22 @@
+pokerfast bundles no third-party source.
+
+The optional exact-equity helper (`pokerfast.equity`, `native/`) builds against
+OMPEval, which is fetched as a git submodule into vendor/OMPEval and is NOT
+redistributed here.
+
+    OMPEval -- https://github.com/vkresch/OMPEval
+               (a fork of https://github.com/zekyll/OMPEval)
+    pinned at commit 725a819
+    ISC License, Copyright (c) 2016, Timo A.
+
+    OMPEval vendors libdivide, which carries its own licence; see
+    vendor/OMPEval/LICENSE-libdivide.txt after initialising the submodule.
+
+If you distribute a BINARY built by native/build.sh, it links OMPEval and you
+must carry OMPEval's copyright and permission notice with it. The ISC licence
+text travels with the submodule at vendor/OMPEval/LICENSE.txt.
+
+`native/patches/0001-constexpr-urbg.patch` is a two-line change to OMPEval's
+omp/Random.h making min()/max() constexpr, which newer C++ standard libraries
+require of a UniformRandomBitGenerator. It is applied to the submodule working
+tree at build time and is not committed upstream here.

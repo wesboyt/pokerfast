@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pokerfast"
+version = "0.1.0"
+description = "Fast hold'em hand evaluation, a lean 6-max NLHE engine, and runtime accelerators for pokerkit"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+keywords = ["poker", "holdem", "hand-evaluator", "equity", "pokerkit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# pokerkit is needed for `pokerfast.patches`, and for the differential tests
+# that are the correctness argument for the engine and the evaluator. The core
+# `eval7` / `FastHand` path does not import it except to fall back.
+pokerkit = ["pokerkit==0.7.3"]
+test = ["pokerkit==0.7.3", "pytest>=7"]
+
+[project.urls]
+Source = "https://github.com/OWNER/pokerfast"
+Issues = "https://github.com/OWNER/pokerfast/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pokerfast"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The differential tests are the point, so make a missing pokerkit loud rather
+# than quietly reducing the suite to the trivial cases.
+addopts = "-ra"
