@@ -1,0 +1,61 @@
+name: Publish to PyPI
+
+# Trusted publishing (OIDC): no API token is stored anywhere. PyPI verifies
+# that the request came from this workflow, in this repository, in the `pypi`
+# environment, and mints a short-lived credential for that one upload.
+#
+# Fires on a published GitHub Release, so cutting a release IS the publish.
+# workflow_dispatch is kept for a manual re-run if an upload fails halfway.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # No submodules: the wheel is pure Python (src/pokerfast only). OMPEval
+        # is needed to BUILD the optional native equity helper, never to build
+        # the distribution.
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    # This environment must exist in the repository settings, and its name must
+    # match the one registered with the trusted publisher on PyPI, or the
+    # upload is rejected.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pokerfast
+    permissions:
+      id-token: write        # the OIDC token. Without this, publishing fails.
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
