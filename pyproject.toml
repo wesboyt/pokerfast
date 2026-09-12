@@ -29,8 +29,8 @@ pokerkit = ["pokerkit==0.7.3"]
 test = ["pokerkit==0.7.3", "pytest>=7"]
 
 [project.urls]
-Source = "https://github.com/OWNER/pokerfast"
-Issues = "https://github.com/OWNER/pokerfast/issues"
+Source = "https://github.com/wesboyt/pokerfast"
+Issues = "https://github.com/wesboyt/pokerfast/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pokerfast"]
