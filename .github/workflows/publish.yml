@@ -104,7 +104,11 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    # A manual run publishes only when dispatched on a release tag (to retry a
+    # failed upload); dispatching it on a branch just builds and tests.
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v'))
     needs: [platform_wheels, pure_and_sdist]
     runs-on: ubuntu-latest
     # This environment must exist in the repository settings, and its name must
