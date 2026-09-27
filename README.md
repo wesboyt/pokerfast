@@ -16,6 +16,13 @@ others.
 The speedup **grows with core count**, because the two engines scale in
 opposite directions on a free-threaded build. See [Benchmarks](#benchmarks).
 
+**Which numbers need free-threaded Python.** The 1-core figures hold on any
+CPython. The multi-core figures need a free-threaded build (3.13t/3.14t,
+`PYTHON_GIL=0`): `eval7` and `FastHand` are pure Python, so under the GIL
+threads take turns, and scaling them across cores means `multiprocessing`.
+`pokerfast.equity` is different — its work is native code that runs with the
+GIL released, so it can use several cores on any Python (see section 4).
+
 ## Install
 
 ```bash
@@ -136,7 +143,13 @@ not built as a CPython extension. It never links libpython, so one build per
 OS and CPU serves every Python version — free-threaded 3.13t/3.14t and PyPy
 included — and the wheels are tagged `py3-none-<platform>`. ctypes releases the
 GIL for each call and the library holds no shared mutable state, so threads
-calling it run in parallel.
+calling it run in parallel **on any Python, GIL or not**: only the Python
+around each call (input checks, building arrays) is serialised. That matters
+for many tiny calls, so batch them with `equity_vs_random_many`; a single
+`equity(..., threads=0)` also spreads one calculation over every core inside
+C++. `benchmarks/bench_equity_threads.py` measures the GIL's cost per
+workload by running the same free-threaded interpreter with the GIL off and
+on.
 
 **Anywhere else**, pip installs the pure-Python `py3-none-any` wheel: everything
 except this module works, and `equity.available()` is `False`. To build the
