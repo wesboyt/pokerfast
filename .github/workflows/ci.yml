@@ -1,5 +1,10 @@
 name: tests
 
+# Fast feedback across Python versions: install from source (compiling the
+# OMPEval library with the runner's own toolchain) and run the suite against
+# the INSTALLED package. The release wheels are built and tested separately,
+# by publish.yml, on every platform they ship for.
+
 on:
   push:
     branches: [main]
@@ -15,11 +20,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.14t"]  # pokerkit 0.7.3 needs 3.11+
+
+    env:
+      # Test the installed package, and fail rather than skip if its native
+      # library did not load. The differential tests against pokerkit are the
+      # correctness argument; `[test]` pins pokerkit so they always run.
+      POKERFAST_TEST_INSTALLED: "1"
+      POKERFAST_REQUIRE_NATIVE: "1"
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
@@ -28,18 +42,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[test]"
+          python -m pip install ".[test]"
 
       - name: Test
-        # The differential tests against pokerkit are the correctness argument.
-        # `[test]` pins pokerkit, so a skip here means something is wrong with
-        # the install rather than with the environment -- treat it as a failure.
-        run: pytest -ra -q
-
-      - name: Fail if the differential tests were skipped
-        shell: bash
-        run: |
-          python - <<'PY'
-          import pokerkit, sys
-          print("pokerkit", pokerkit.__name__, "importable -- differential tests ran")
-          PY
+        run: python -m pytest -ra -q

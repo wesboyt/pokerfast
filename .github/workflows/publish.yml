@@ -1,13 +1,32 @@
-name: Publish to PyPI
+name: Wheels
 
-# Trusted publishing (OIDC): no API token is stored anywhere. PyPI verifies
-# that the request came from this workflow, in this repository, in the `pypi`
-# environment, and mints a short-lived credential for that one upload.
+# Builds every wheel on every push/PR (so a platform that breaks is caught
+# before a release), and publishes to PyPI only when a GitHub Release is
+# published.
 #
-# Fires on a published GitHub Release, so cutting a release IS the publish.
-# workflow_dispatch is kept for a manual re-run if an upload fails halfway.
+# The native library is loaded with ctypes, so each wheel is tagged
+# py3-none-<platform> and is built ONCE per OS/CPU, not once per Python:
+#
+#   Linux    x86_64, aarch64       manylinux (glibc) + musllinux (Alpine)
+#   macOS    x86_64, arm64
+#   Windows  AMD64, ARM64
+#
+# plus a pure-Python py3-none-any wheel with no library, which pip picks only
+# where no platform wheel matches (everything but pokerfast.equity works), and
+# the sdist, which builds from source with CMake and a C++11 compiler.
+#
+# Every platform wheel is installed and the full suite run against it with
+# POKERFAST_REQUIRE_NATIVE=1, so a wheel whose library fails to load fails
+# the build instead of skipping the equity tests.
+#
+# Trusted publishing (OIDC): no API token is stored anywhere. PyPI verifies
+# that the request came from THIS workflow file (publish.yml -- keep the name),
+# in this repository, in the `pypi` environment.
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   release:
     types: [published]
   workflow_dispatch:
@@ -16,14 +35,42 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build sdist and wheel
+  platform_wheels:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,   os: ubuntu-latest,    archs: x86_64 }
+          - { name: linux-aarch64,  os: ubuntu-24.04-arm, archs: aarch64 }
+          - { name: macos-x86_64,   os: macos-15-intel,   archs: x86_64 }
+          - { name: macos-arm64,    os: macos-latest,     archs: arm64 }
+          - { name: windows-amd64,  os: windows-latest,   archs: AMD64 }
+          - { name: windows-arm64,  os: windows-11-arm,   archs: ARM64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pypa/cibuildwheel@v4.2.1
+        env:
+          CIBW_ARCHS: ${{ matrix.archs }}
+        with:
+          output-dir: wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.name }}
+          path: wheelhouse/*.whl
+
+  pure_and_sdist:
+    name: sdist + pure wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        # No submodules: the wheel is pure Python (src/pokerfast only). OMPEval
-        # is needed to BUILD the optional native equity helper, never to build
-        # the distribution.
+        with:
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
@@ -32,21 +79,40 @@ jobs:
       - name: Build
         run: |
           python -m pip install --upgrade pip build twine
-          python -m build
+          python -m build --sdist
+          python -m build --wheel -C wheel.cmake=false -C wheel.platlib=false
           python -m twine check dist/*
+
+      - name: The pure wheel must be py3-none-any and carry no library
+        run: |
+          ls dist/pokerfast-*-py3-none-any.whl
+          ! python -m zipfile -l dist/*-py3-none-any.whl | grep -q _native
+
+      - name: The sdist must build and pass on its own
+        # Unpack and build from the tarball, not the checkout: this is what a
+        # user on a platform without a wheel gets.
+        run: |
+          mkdir sdist-test && tar xzf dist/*.tar.gz -C sdist-test --strip-components=1
+          python -m pip install "./sdist-test[test]"
+          cd sdist-test
+          POKERFAST_TEST_INSTALLED=1 POKERFAST_REQUIRE_NATIVE=1 python -m pytest -q
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/
+          name: sdist-and-pure
+          path: dist/*
 
   publish:
-    name: Publish
-    needs: build
+    name: Publish to PyPI
+    # A manual run publishes only when dispatched on a release tag (to retry a
+    # failed upload); dispatching it on a branch just builds and tests.
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v'))
+    needs: [platform_wheels, pure_and_sdist]
     runs-on: ubuntu-latest
     # This environment must exist in the repository settings, and its name must
-    # match the one registered with the trusted publisher on PyPI, or the
-    # upload is rejected.
+    # match the one registered with the trusted publisher on PyPI.
     environment:
       name: pypi
       url: https://pypi.org/p/pokerfast
@@ -55,7 +121,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist/
+          path: dist
+          merge-multiple: true
+
+      - run: ls -la dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1
