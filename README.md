@@ -3,7 +3,7 @@
 Fast Texas hold'em primitives: a table-driven 7-card evaluator, a lean 6-max
 no-limit engine, and runtime accelerators for [pokerkit](https://github.com/uoftcprg/pokerkit).
 
-Three independent pieces. Take whichever you need — none of them requires the
+Four independent pieces. Take whichever you need — none of them requires the
 others.
 
 | you want | use | against pokerkit |
@@ -11,7 +11,7 @@ others.
 | compare 7-card hands | `eval7` | **74x** (1 core) → **331x** (4 cores) |
 | play out millions of hands | `FastHand` | **45x** (1 core) → **160x** (4 cores) |
 | keep pokerkit, lose the cost | `pokerfast.patches` | ~2x on the evaluation path |
-| exact multi-way equity | `pokerfast.equity` | C++ (OMPEval), batched |
+| exact multi-way equity | `pokerfast.equity` | C++ (OMPEval), compiled into the wheel |
 
 The speedup **grows with core count**, because the two engines scale in
 opposite directions on a free-threaded build. See [Benchmarks](#benchmarks).
@@ -107,34 +107,60 @@ are fingerprinted, and a mismatch disables the patches loudly rather than
 applying one that was never verified. `POKERFAST_STRICT=0` overrides, once
 you've checked it yourself.
 
-## 4. `pokerfast.equity` — exact equity (optional)
+## 4. `pokerfast.equity` — exact equity and a C++ evaluator
 
-Needs a C++ toolchain and CMake. OMPEval is a **git submodule**, not vendored
-source:
+[OMPEval](https://github.com/zekyll/OMPEval), compiled into the wheel. No
+compiler needed: `pip install pokerfast` gets a prebuilt library on
 
-```bash
-git submodule update --init --recursive
-bash native/build.sh
-```
+| OS | CPUs |
+|---|---|
+| Linux (glibc 2.28+, and musl/Alpine) | x86-64, ARM64 |
+| macOS | Intel, Apple Silicon |
+| Windows | x86-64, ARM64 |
 
 ```python
-from pokerfast.equity import EquityCalculator
+from pokerfast import equity
 
-with EquityCalculator() as eq:
-    eq.equity('AhKd', '2c3d4h5s6c')
-    eq.equity_many([('AhKd', '2c3d4h5s6c'), ('7c7d', '')])
+equity.equity_vs_random('AhKd', '2c3d4h5s6c')           # vs one random hand
+equity.equity_vs_random_many([('AhKd', '2c3d4h5s6c'), ('7c7d', '')])
+equity.equity(['AhKd', 'QQ+,AKs', 'random'], board='2c3d4h')   # up to 6 players
+equity.equity(['AhAd', 'KK'], dead='Ks', exact=False, stdev=1e-3, threads=0)
+equity.evaluate([('As', 'Ks', 'Qs', 'Js', 'Ts', '2c', '3d')])  # order only
 ```
 
-The helper keeps **one** process alive and serves queries over stdin/stdout. A
-single-query process spends ~19 ms of its ~26 ms building an 86,547-entry
-lookup table it then throws away, so batching is most of the win. It also
-enumerates exhaustively rather than sampling (with a full board the opponent
-has only C(45,2) = 990 hands, so exact is both cheaper *and* exact) and runs
-single-threaded, because a thread pool costs more than a 990-combination
-problem.
+`equity()` takes OMPEval range syntax per player (`'AhKd'`, `'QQ+,AKs,T9s'`,
+`'random'`), exact enumeration by default or Monte Carlo with `exact=False`.
 
-See `NOTICE` for OMPEval's ISC licence and what it requires if you ship a
-binary.
+**How it ships.** The library has a plain C ABI and is loaded with `ctypes`,
+not built as a CPython extension. It never links libpython, so one build per
+OS and CPU serves every Python version — free-threaded 3.13t/3.14t and PyPy
+included — and the wheels are tagged `py3-none-<platform>`. ctypes releases the
+GIL for each call and the library holds no shared mutable state, so threads
+calling it run in parallel.
+
+**Anywhere else**, pip installs the pure-Python `py3-none-any` wheel: everything
+except this module works, and `equity.available()` is `False`. To build the
+library yourself (CMake 3.15+ and a C++11 compiler):
+
+```bash
+git clone --recursive https://github.com/wesboyt/pokerfast
+pip install ./pokerfast          # builds from source
+```
+
+or build just the library and point `POKERFAST_OMPEVAL_LIB` at it:
+
+```bash
+cmake -S native -B native/build && cmake --build native/build --config Release
+```
+
+**Why you can trust it:** `tests/test_equity.py` checks the evaluator's order
+against `eval7` (itself differentially tested against pokerkit), and exact
+equities — heads-up, multiway, with dead cards — against brute-force
+enumeration of every runout, to 1e-12. Every published wheel is installed and
+tested on its own platform before release.
+
+The OMPEval sources are patched at build time, in the build tree (the
+submodule is never modified), with asserted anchors — see `NOTICE`.
 
 ## Environment variables
 
@@ -144,7 +170,7 @@ binary.
 | `POKERFAST_STRICT` | `1` | `0` patches pokerkit despite a fingerprint mismatch |
 | `POKERFAST_EVAL_CACHE` | `65536` | `Lookup._get_key` cache size |
 | `POKERFAST_FROMGAME_CACHE` | `32768` | `from_game` cache size |
-| `POKERFAST_OMPEVAL` | — | path to a prebuilt `ompeval_batch` |
+| `POKERFAST_OMPEVAL_LIB` | — | path to a self-built OMPEval library |
 
 ## Tests
 
@@ -213,4 +239,5 @@ is only faster because it does much less.
 
 ## Licence
 
-MIT — see `LICENSE`. OMPEval is ISC and is not redistributed here; see `NOTICE`.
+MIT — see `LICENSE`. The platform wheels include a compiled copy of OMPEval
+(ISC) and libdivide (zlib); their licences ship in the wheel. See `NOTICE`.

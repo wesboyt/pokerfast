@@ -1,22 +1,35 @@
-pokerfast bundles no third-party source.
+pokerfast is MIT licensed (see LICENSE).
 
-The optional exact-equity helper (`pokerfast.equity`, `native/`) builds against
-OMPEval, which is fetched as a git submodule into vendor/OMPEval and is NOT
-redistributed here.
+The platform wheels (py3-none-<platform>) include pokerfast/_native/
+pokerfast_omp.{dll,so,dylib}, a library compiled from pokerfast's own
+native/pokerfast_omp.cpp together with OMPEval, which in turn includes
+libdivide. Their licences ship in each wheel's .dist-info/licenses/.
 
     OMPEval -- https://github.com/vkresch/OMPEval
                (a fork of https://github.com/zekyll/OMPEval)
-    pinned at commit 725a819
+    a git submodule at vendor/OMPEval, pinned at commit 725a819
     ISC License, Copyright (c) 2016, Timo A.
+    Licence text: vendor/OMPEval/LICENSE.txt
 
-    OMPEval vendors libdivide, which carries its own licence; see
-    vendor/OMPEval/LICENSE-libdivide.txt after initialising the submodule.
+    libdivide -- https://libdivide.com, vendored inside OMPEval
+    zlib License, Copyright (C) 2010 ridiculous_fish
+    Licence text: vendor/OMPEval/LICENSE-libdivide.txt
 
-If you distribute a BINARY built by native/build.sh, it links OMPEval and you
-must carry OMPEval's copyright and permission notice with it. The ISC licence
-text travels with the submodule at vendor/OMPEval/LICENSE.txt.
+The pure-Python wheel (py3-none-any) contains no third-party code. The sdist
+carries the OMPEval sources and both licence texts, so it can build the
+library without git.
 
-`native/patches/0001-constexpr-urbg.patch` is a two-line change to OMPEval's
-omp/Random.h making min()/max() constexpr, which newer C++ standard libraries
-require of a UniformRandomBitGenerator. It is applied to the submodule working
-tree at build time and is not committed upstream here.
+Build-time changes to OMPEval. native/CMakeLists.txt copies the sources into
+the build tree and patches the copy; the submodule itself is never modified.
+Each patch asserts its anchor text, so an upstream change fails the build
+instead of silently compiling unpatched code.
+
+  1. omp/Random.h: min()/max() made constexpr, which newer C++ standard
+     libraries require of a UniformRandomBitGenerator.
+  2. libdivide/libdivide.h: x86-64 is detected by __x86_64__/_M_X64 only, not
+     _WIN64, which Windows on ARM64 also defines; without this, ARM64 Windows
+     builds try to compile x86 inline assembly.
+
+The C wrapper also computes equity from OMPEval's exact win/tie counts instead
+of its reported equity, which divides by (hands + 1e-9) and so biases every
+exact result low by about 1e-9 / hands.
