@@ -1,7 +1,7 @@
 """pokerfast -- fast hold'em hand evaluation, a lean NLHE engine, and
 runtime accelerators for pokerkit.
 
-Three independent pieces; take whichever you need.
+Four independent pieces; take whichever you need.
 
 1. `eval7` -- table-driven 7-card evaluation, ~50x quicker than pushing all 21
    five-card combinations through a generic lookup. Order-exact against
@@ -27,8 +27,11 @@ Three independent pieces; take whichever you need.
        from pokerfast import patches
        patches.install_all()
 
-Optional extra: `pokerfast.equity` drives OMPEval (a git submodule, built by
-`native/build.sh`) for exact multi-way equity.
+4. `pokerfast.equity` -- OMPEval, compiled into the platform wheels: exact
+   and Monte Carlo multi-way equity with ranges, and a C++ evaluator.
+
+       from pokerfast import equity
+       equity.equity_vs_random('AhKd', '2c3d4h5s6c')
 """
 
 from .evaluator import eval7, eval_hole_board, RANKS, SUITS
@@ -41,4 +44,4 @@ __all__ = [
     '__version__',
 ]
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
